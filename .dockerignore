@@ -1,0 +1,65 @@
+# Git
+.git
+.gitignore
+README.md
+.github
+
+# Build artifacts
+build/
+dist/
+*.exe
+custodian-killer
+custodian-killer-*
+
+# Test files and coverage
+*.test
+*.out
+coverage.html
+coverage.out
+
+# Temporary files
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Docker files (don't copy into container)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Documentation
+docs/
+*.md
+
+# Local development files
+.air.toml
+tmp/
+
+# Dependencies (will be downloaded in container)
+vendor/
+
+# Local configuration
+config.local.json
+*.local.yml
+
+# AWS credentials (security)
+.aws/
+credentials
+config
+
+# Backup files
+*.bak
+*.backup

@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  custodian-killer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: custodian-killer
+    
+    # Interactive mode requires a TTY
+    stdin_open: true
+    tty: true
+    
+    # Environment variables for AWS configuration
+    environment:
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_PROFILE=${AWS_PROFILE:-default}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+    
+    # Mount AWS credentials and config (if using local AWS config)
+    volumes:
+      - ${HOME}/.aws:/home/custodian/.aws:ro
+      - custodian-killer-data:/home/custodian/.custodian-killer
+      - ./policies:/app/policies:ro  # Optional: mount local policies directory
+    
+    # Network configuration
+    networks:
+      - custodian-network
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "./custodian-killer", "--help"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Labels
+    labels:
+      - "traefik.enable=false"  # Disable Traefik if running
+      - "com.custodian-killer.description=AWS Policy Management Tool"
+      - "com.custodian-killer.version=1.0.0"
+
+  # Optional: Web UI service (for future development)
+  # custodian-killer-web:
+  #   build:
+  #     context: ./web
+  #     dockerfile: Dockerfile
+  #   container_name: custodian-killer-web
+  #   ports:
+  #     - "8080:8080"
+  #   depends_on:
+  #     - custodian-killer
+  #   networks:
+  #     - custodian-network
+
+# Named volumes for persistent data
+volumes:
+  custodian-killer-data:
+    driver: local
+    labels:
+      - "com.custodian-killer.description=Custodian Killer policy storage"
+
+# Custom network
+networks:
+  custodian-network:
+    driver: bridge
+    labels:
+      - "com.custodian-killer.description=Custodian Killer network"
