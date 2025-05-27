@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"custodian-killer/aws"
+	"custodian-killer/reports"
 	"custodian-killer/scanner"
 	"custodian-killer/storage"
 	"custodian-killer/templates"
@@ -984,47 +986,80 @@ func createPolicyMode(reader *bufio.Reader) PolicyMode {
 	return mode
 }
 
-func customizeTemplate(reader *bufio.Reader, template templates.PolicyTemplate) Policy {
-	policy := convertTemplatePolicyToPolicy(template.Template)
-	policy.Name = getInput(reader, "Policy name: ")
+// Initialize AWS client with configuration
+func initializeAWSClient(forceDryRun bool) (*aws.CustodianClient, error) {
+	fmt.Println("🔧 Initializing AWS connection...")
 
-	fmt.Printf("\nCustomizing template: %s\n", template.Name)
-
-	// Customize based on template variables
-	for _, variable := range template.Variables {
-		switch variable.Name {
-		case "days_unused":
-			days := getInput(reader, "How many days should a resource be unused before action? ")
-			// Update filter with the days value
-			for i := range policy.Filters {
-				if policy.Filters[i].Type == "cpu-utilization" {
-					policy.Filters[i].Value = days + " days"
-				}
-			}
-		case "required_tags":
-			tags := getInput(reader, "Required tags (comma-separated): ")
-			tagList := strings.Split(tags, ",")
-			// Update filters with required tags
-			policy.Filters = []Filter{}
-			for _, tag := range tagList {
-				policy.Filters = append(policy.Filters, Filter{
-					Type: "tag-missing",
-					Key:  strings.TrimSpace(tag),
-					Op:   "missing",
-				})
-			}
-		}
+	// Get AWS configuration from environment or use defaults
+	config := aws.ClientConfig{
+		Region:          os.Getenv("AWS_REGION"),
+		Profile:         os.Getenv("AWS_PROFILE"),
+		AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+		SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		SessionToken:    os.Getenv("AWS_SESSION_TOKEN"),
+		DryRun:          forceDryRun,
+		Timeout:         30 * time.Second,
 	}
 
-	return policy
+	// Set defaults
+	if config.Region == "" {
+		config.Region = "us-east-1"
+	}
+	if config.Profile == "" {
+		config.Profile = "default"
+	}
+
+	return aws.NewCustodianClient(config)
 }
 
-// Display functions for scan results
-func displayScanResult(result scanner.ScanResult) {
-	fmt.Printf("\n📊 Scan Results for: %s\n", result.PolicyName)
-	fmt.Printf("⏰ Scanned at: %s\n", result.ScanTime.Format("2006-01-02 15:04:05"))
+// Display execution result in a nice format
+func displayExecutionResult(result *ExecutionResult) {
+	fmt.Printf("\n📊 Execution Results for: %s\n", result.PolicyName)
+	fmt.Printf("⏰ Duration: %v\n", result.Duration.Round(time.Second))
 	fmt.Printf("🎯 Resource Type: %s\n", strings.ToUpper(result.ResourceType))
 
+	if result.DryRun {
+		fmt.Println("🧪 DRY RUN MODE - No actual changes made")
+	} else {
+		fmt.Println("💥 LIVE MODE - Changes were applied")
+	}
+
+	// Summary
+	fmt.Println("\n📈 Summary:")
+	fmt.Printf("   • Resources Found: %d\n", result.ResourcesFound)
+	fmt.Printf("   • Resources Matched: %d\n", result.ResourcesMatched)
+	fmt.Printf("   • Actions Executed: %d\n", result.Summary.TotalActions)
+	fmt.Printf("   • Successful Actions: %d\n", result.Summary.SuccessfulActions)
+
+	if result.Summary.FailedActions > 0 {
+		fmt.Printf("   • ❌ Failed Actions: %d\n", result.Summary.FailedActions)
+	}
+
+	if result.Summary.ResourcesModified > 0 {
+		fmt.Printf("   • 🔧 Resources Modified: %d\n", result.Summary.ResourcesModified)
+	}
+
+	if result.Summary.EstimatedMonthlySavings > 0 {
+		fmt.Printf(
+			"   • 💰 Estimated Monthly Savings: $%.2f\n",
+			result.Summary.EstimatedMonthlySavings,
+		)
+	}
+
+	if result.Summary.SecurityImprovements > 0 {
+		fmt.Printf("   • 🔒 Security Improvements: %d\n", result.Summary.SecurityImprovements)
+	}
+
+	// Cost Impact
+	if result.CostImpact.MonthlySavings > 0 {
+		fmt.Println("\n💰 Cost Impact:")
+		fmt.Printf("   • Previous Monthly Cost: $%.2f\n", result.CostImpact.PreviousMonthlyCost)
+		fmt.Printf("   • New Monthly Cost: $%.2f\n", result.CostImpact.NewMonthlyCost)
+		fmt.Printf("   • Monthly Savings: $%.2f\n", result.CostImpact.MonthlySavings)
+		fmt.Printf("   • Annual Savings: $%.2f\n", result.CostImpact.AnnualSavings)
+	}
+
+	// Errors
 	if len(result.Errors) > 0 {
 		fmt.Println("\n⚠️  Errors:")
 		for _, err := range result.Errors {
@@ -1032,128 +1067,601 @@ func displayScanResult(result scanner.ScanResult) {
 		}
 	}
 
-	// Summary
-	fmt.Println("\n📈 Summary:")
-	fmt.Printf("   • Total Scanned: %d resources\n", result.Summary.TotalScanned)
-	fmt.Printf("   • Matches Found: %d resources\n", result.Summary.MatchedResources)
-	fmt.Printf("   • Actions Planned: %d\n", result.Summary.ActionsPlanned)
-	if result.Summary.HighRiskActions > 0 {
-		fmt.Printf("   • ⚠️  High Risk Actions: %d\n", result.Summary.HighRiskActions)
-	}
-	if result.Summary.CostSavings > 0 {
-		fmt.Printf("   • 💰 Estimated Monthly Savings: $%.2f\n", result.Summary.CostSavings)
-	}
+	// Action Details
+	if len(result.ActionResults) > 0 {
+		fmt.Println("\n⚡ Action Details:")
+		actionGroups := make(map[string][]ActionResult)
 
-	// Matched resources
-	if len(result.MatchedResources) > 0 {
-		fmt.Println("\n🎯 Matched Resources:")
-		for i, resource := range result.MatchedResources {
-			fmt.Printf("\n%d. %s %s (%s)\n", i+1,
-				strings.ToUpper(resource.Type), resource.ID, resource.Region)
+		// Group actions by type
+		for _, actionResult := range result.ActionResults {
+			actionGroups[actionResult.Action] = append(
+				actionGroups[actionResult.Action],
+				actionResult,
+			)
+		}
 
-			if resource.Name != "" {
-				fmt.Printf("   📛 Name: %s\n", resource.Name)
-			}
+		// Display each action group
+		for actionType, actions := range actionGroups {
+			successful := 0
+			failed := 0
 
-			fmt.Printf("   📊 State: %s | Risk: %s\n", resource.State, resource.RiskLevel)
-
-			// Show compliance issues
-			if !resource.Compliance.Compliant && len(resource.Compliance.Issues) > 0 {
-				fmt.Printf("   ⚠️  Issues: %s\n", strings.Join(resource.Compliance.Issues, ", "))
-			}
-
-			// Show tags
-			if len(resource.Tags) > 0 {
-				fmt.Printf("   🏷️  Tags: ")
-				var tagStrs []string
-				for key, value := range resource.Tags {
-					tagStrs = append(tagStrs, fmt.Sprintf("%s=%s", key, value))
+			for _, action := range actions {
+				if action.Success {
+					successful++
+				} else {
+					failed++
 				}
-				fmt.Printf("%s\n", strings.Join(tagStrs, ", "))
 			}
 
-			// Show planned actions
-			if len(resource.Actions) > 0 {
-				fmt.Printf("   ⚡ Planned Actions:\n")
-				for _, action := range resource.Actions {
-					icon := "🔧"
-					if action.Impact == "high" {
-						icon = "⚠️ "
-					} else if action.Impact == "medium" {
-						icon = "🔶"
-					}
+			fmt.Printf("\n   🔧 %s:\n", strings.ToUpper(actionType))
+			fmt.Printf("      ✅ Successful: %d | ❌ Failed: %d\n", successful, failed)
 
-					dryRunStr := ""
-					if action.DryRun {
-						dryRunStr = " (DRY RUN)"
-					}
+			// Show details for first few actions
+			displayCount := len(actions)
+			if displayCount > 5 {
+				displayCount = 5
+			}
 
-					fmt.Printf("      %s %s%s\n", icon, action.Description, dryRunStr)
-					fmt.Printf("         Impact: %s | Reversible: %t\n",
-						action.Impact, action.Reversible)
+			for _, action := range actions[:displayCount] {
+				icon := "✅"
+				if !action.Success {
+					icon = "❌"
 				}
+
+				dryRunStr := ""
+				if action.DryRun {
+					dryRunStr = " (DRY RUN)"
+				}
+
+				fmt.Printf(
+					"      %s %s: %s%s\n",
+					icon,
+					action.ResourceID,
+					action.Message,
+					dryRunStr,
+				)
+			}
+
+			if len(actions) > displayCount {
+				fmt.Printf("      ... and %d more\n", len(actions)-displayCount)
 			}
 		}
+	}
+
+	// Overall status
+	if result.Success {
+		fmt.Println("\n🎉 Execution completed successfully!")
 	} else {
-		fmt.Println("\n✅ No resources matched this policy - you're all good!")
+		fmt.Println("\n⚠️  Execution completed with errors")
 	}
 }
 
-func displayAllScanResults(results []scanner.ScanResult) {
-	fmt.Printf("\n📊 Scan Results Summary (%d policies)\n", len(results))
+func runScan() {
+	if policyStorage == nil {
+		fmt.Println("❌ Storage not initialized!")
+		return
+	}
+
+	fmt.Println("🔍 Policy Scanner - See what your policies would do!")
 	fmt.Println("═══════════════════════════════════════════════════")
 
-	totalScanned := 0
-	totalMatched := 0
-	totalActions := 0
-	totalHighRisk := 0
-	totalSavings := 0.0
-
-	for i, result := range results {
-		fmt.Printf("\n%d. 🎯 %s (%s)\n", i+1, result.PolicyName,
-			strings.ToUpper(result.ResourceType))
-
-		fmt.Printf("   📊 Scanned: %d | Matched: %d | Actions: %d\n",
-			result.Summary.TotalScanned,
-			result.Summary.MatchedResources,
-			result.Summary.ActionsPlanned)
-
-		if result.Summary.HighRiskActions > 0 {
-			fmt.Printf("   ⚠️  High Risk: %d actions\n", result.Summary.HighRiskActions)
-		}
-
-		if result.Summary.CostSavings > 0 {
-			fmt.Printf("   💰 Savings: $%.2f/month\n", result.Summary.CostSavings)
-		}
-
-		if len(result.Errors) > 0 {
-			fmt.Printf("   ❌ Errors: %d\n", len(result.Errors))
-		}
-
-		// Accumulate totals
-		totalScanned += result.Summary.TotalScanned
-		totalMatched += result.Summary.MatchedResources
-		totalActions += result.Summary.ActionsPlanned
-		totalHighRisk += result.Summary.HighRiskActions
-		totalSavings += result.Summary.CostSavings
+	// Initialize scanner
+	scannerConfig := scanner.ScannerConfig{
+		AWSRegion:     os.Getenv("AWS_REGION"),
+		AWSProfile:    os.Getenv("AWS_PROFILE"),
+		DryRunDefault: true,
+		MaxResources:  1000,
+		Timeout:       300,
 	}
 
-	// Overall summary
-	fmt.Println("\n🎯 Overall Summary:")
-	fmt.Printf("   📊 Total Resources Scanned: %d\n", totalScanned)
-	fmt.Printf("   🎯 Total Matches: %d\n", totalMatched)
-	fmt.Printf("   ⚡ Total Actions Planned: %d\n", totalActions)
-	if totalHighRisk > 0 {
-		fmt.Printf("   ⚠️  High Risk Actions: %d\n", totalHighRisk)
-	}
-	if totalSavings > 0 {
-		fmt.Printf("   💰 Total Estimated Savings: $%.2f/month\n", totalSavings)
+	policyScanner := scanner.NewPolicyScanner(policyStorage, scannerConfig)
+
+	// List available policies
+	policies, err := policyStorage.ListPolicies()
+	if err != nil {
+		fmt.Printf("❌ Failed to list policies: %v\n", err)
+		return
 	}
 
-	fmt.Println("\n💡 Pro Tips:")
-	fmt.Println("   • Review high-risk actions carefully before executing")
-	fmt.Println("   • Test individual policies first with single scans")
-	fmt.Println("   • Check that dry-run is enabled for destructive actions")
+	if len(policies) == 0 {
+		fmt.Println("📋 No policies found!")
+		fmt.Println("💡 Create your first policy with 'make policy'")
+		return
+	}
+
+	// Show active policies
+	var activePolicies []storage.StoredPolicy
+	for _, policy := range policies {
+		if policy.Status == "active" {
+			activePolicies = append(activePolicies, policy)
+		}
+	}
+
+	if len(activePolicies) == 0 {
+		fmt.Println("📋 No active policies found!")
+		return
+	}
+
+	fmt.Printf("📋 Active Policies (%d available):\n", len(activePolicies))
+	for i, policy := range activePolicies {
+		fmt.Printf("%d. 🎯 %s (%s)\n", i+1, policy.Name, strings.ToUpper(policy.ResourceType))
+	}
+	fmt.Printf("%d. 🚀 Scan ALL policies\n", len(activePolicies)+1)
+
+	reader := bufio.NewReader(os.Stdin)
+	choice := getChoice(reader, 1, len(activePolicies)+1, "\nChoose policy to scan: ")
+
+	if choice == len(activePolicies)+1 {
+		// Scan all policies
+		fmt.Println("\n🚀 Scanning ALL active policies...")
+		fmt.Println("═══════════════════════════════════════")
+
+		results, err := policyScanner.ScanAllPolicies()
+		if err != nil {
+			fmt.Printf("❌ Failed to scan policies: %v\n", err)
+			return
+		}
+
+		for _, result := range results {
+			displayScanResult(&result)
+		}
+	} else {
+		// Scan single policy
+		selectedPolicy := activePolicies[choice-1]
+		fmt.Printf("\n🎯 Scanning policy: %s\n", selectedPolicy.Name)
+		fmt.Println("═══════════════════════════════════════")
+
+		result, err := policyScanner.ScanPolicy(selectedPolicy.Name)
+		if err != nil {
+			fmt.Printf("❌ Failed to scan policy: %v\n", err)
+			return
+		}
+
+		displayScanResult(result)
+	}
+
+	fmt.Println("\n💡 Next steps:")
+	fmt.Println("   • Review the results above")
+	fmt.Println("   • Use 'execute' to run policies for real")
+	fmt.Println("   • Modify policies if needed")
+}
+
+func displayScanResult(result *scanner.ScanResult) {
+	fmt.Printf("\n📊 Scan Results for: %s\n", result.PolicyName)
+	fmt.Printf("🎯 Resource Type: %s\n", strings.ToUpper(result.ResourceType))
+	fmt.Printf("⏰ Scan Time: %s\n", result.ScanTime.Format("2006-01-02 15:04:05"))
+
+	if result.DryRun {
+		fmt.Println("🧪 DRY RUN MODE - This is just a preview")
+	}
+
+	// Summary
+	fmt.Println("\n📈 Summary:")
+	fmt.Printf("   • Total Scanned: %d\n", result.Summary.TotalScanned)
+	fmt.Printf("   • Matched Resources: %d\n", result.Summary.MatchedResources)
+	fmt.Printf("   • Actions Planned: %d\n", result.Summary.ActionsPlanned)
+
+	if result.Summary.HighRiskActions > 0 {
+		fmt.Printf("   • ⚠️  High Risk Actions: %d\n", result.Summary.HighRiskActions)
+	}
+
+	if result.Summary.CostSavings > 0 {
+		fmt.Printf("   • 💰 Estimated Savings: $%.2f/month\n", result.Summary.CostSavings)
+	}
+
+	// Show matched resources
+	if len(result.MatchedResources) > 0 {
+		fmt.Println("\n🎯 Matched Resources:")
+
+		displayCount := len(result.MatchedResources)
+		if displayCount > 10 {
+			displayCount = 10
+		}
+
+		for i, resource := range result.MatchedResources[:displayCount] {
+			fmt.Printf("\n%d. 📋 %s (%s)\n", i+1, resource.Name, resource.ID)
+			fmt.Printf("   🏷️  Type: %s | State: %s | Region: %s\n",
+				resource.Type, resource.State, resource.Region)
+
+			if resource.RiskLevel != "low" {
+				fmt.Printf("   ⚠️  Risk Level: %s\n", strings.ToUpper(resource.RiskLevel))
+			}
+
+			if !resource.Compliance.Compliant {
+				fmt.Printf("   ❌ Compliance Issues: %s\n",
+					strings.Join(resource.Compliance.Issues, ", "))
+			}
+
+			if len(resource.Actions) > 0 {
+				fmt.Printf("   ⚡ Planned Actions: ")
+				var actionNames []string
+				for _, action := range resource.Actions {
+					actionName := action.Type
+					if action.DryRun {
+						actionName += " (dry-run)"
+					}
+					actionNames = append(actionNames, actionName)
+				}
+				fmt.Printf("%s\n", strings.Join(actionNames, ", "))
+			}
+		}
+
+		if len(result.MatchedResources) > displayCount {
+			fmt.Printf("\n... and %d more resources\n", len(result.MatchedResources)-displayCount)
+		}
+	}
+
+	// Show errors
+	if len(result.Errors) > 0 {
+		fmt.Println("\n⚠️  Errors:")
+		for _, err := range result.Errors {
+			fmt.Printf("   • %s\n", err)
+		}
+	}
+
+	// Cost estimate
+	if result.EstimatedCost != nil {
+		fmt.Println("\n💰 Cost Impact:")
+		fmt.Printf("   • Current Monthly Cost: $%.2f\n", result.EstimatedCost.CurrentMonthlyCost)
+		fmt.Printf("   • Projected Savings: $%.2f\n", result.EstimatedCost.ProjectedSavings)
+		fmt.Printf("   • Currency: %s\n", result.EstimatedCost.Currency)
+	}
+}
+
+func executePolicy() {
+	if policyStorage == nil {
+		fmt.Println("❌ Storage not initialized!")
+		return
+	}
+
+	fmt.Println("⚡ Policy Executor - Make real changes to AWS resources!")
+	fmt.Println("═══════════════════════════════════════════════════")
+
+	// Initialize AWS client in live mode
+	awsClient, err := initializeAWSClient(false) // Live mode
+	if err != nil {
+		fmt.Printf("❌ Failed to initialize AWS client: %v\n", err)
+		return
+	}
+	defer awsClient.Close()
+
+	// List available policies
+	policies, err := policyStorage.ListPolicies()
+	if err != nil {
+		fmt.Printf("❌ Failed to list policies: %v\n", err)
+		return
+	}
+
+	if len(policies) == 0 {
+		fmt.Println("📋 No policies found!")
+		fmt.Println("💡 Create your first policy with 'make policy'")
+		return
+	}
+
+	// Show active policies
+	var activePolicies []storage.StoredPolicy
+	for _, policy := range policies {
+		if policy.Status == "active" {
+			activePolicies = append(activePolicies, policy)
+		}
+	}
+
+	if len(activePolicies) == 0 {
+		fmt.Println("📋 No active policies found!")
+		return
+	}
+
+	fmt.Printf("📋 Active Policies (%d available):\n", len(activePolicies))
+	for i, policy := range activePolicies {
+		fmt.Printf("%d. 🎯 %s (%s)\n", i+1, policy.Name, strings.ToUpper(policy.ResourceType))
+		fmt.Printf("   📝 %s\n", policy.Description)
+
+		// Show dry-run status
+		dryRunActions := 0
+		for _, action := range policy.Actions {
+			if action.DryRun {
+				dryRunActions++
+			}
+		}
+
+		if dryRunActions == len(policy.Actions) {
+			fmt.Printf("   🧪 All actions in DRY-RUN mode (safe)\n")
+		} else if dryRunActions > 0 {
+			fmt.Printf("   ⚠️  %d actions in DRY-RUN, %d in LIVE mode\n", dryRunActions, len(policy.Actions)-dryRunActions)
+		} else {
+			fmt.Printf("   💥 All actions in LIVE mode - WILL MAKE CHANGES!\n")
+		}
+		fmt.Println()
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	choice := getChoice(reader, 1, len(activePolicies), "\nChoose policy to execute: ")
+
+	selectedPolicy := activePolicies[choice-1]
+
+	// Show policy details and confirm
+	fmt.Printf("\n🎯 Selected Policy: %s\n", selectedPolicy.Name)
+	fmt.Printf("📝 Description: %s\n", selectedPolicy.Description)
+	fmt.Printf("🏷️  Resource Type: %s\n", strings.ToUpper(selectedPolicy.ResourceType))
+	fmt.Printf(
+		"🔍 Filters: %d | ⚡ Actions: %d\n",
+		len(selectedPolicy.Filters),
+		len(selectedPolicy.Actions),
+	)
+
+	// Count dry-run vs live actions
+	dryRunActions := 0
+	liveActions := 0
+	for _, action := range selectedPolicy.Actions {
+		if action.DryRun {
+			dryRunActions++
+		} else {
+			liveActions++
+		}
+	}
+
+	if liveActions > 0 {
+		fmt.Printf(
+			"\n⚠️  WARNING: This policy has %d LIVE actions that will make actual changes!\n",
+			liveActions,
+		)
+		fmt.Println("💡 Consider running 'scan' first to see what would happen")
+	}
+
+	if dryRunActions > 0 {
+		fmt.Printf("🧪 %d actions are in dry-run mode (safe)\n", dryRunActions)
+	}
+
+	// Final confirmation
+	fmt.Printf("\n🤔 Are you sure you want to execute this policy? (y/N): ")
+	var confirm string
+	fmt.Scanln(&confirm)
+
+	if strings.ToLower(confirm) != "y" && strings.ToLower(confirm) != "yes" {
+		fmt.Println("❌ Execution cancelled")
+		return
+	}
+
+	// Create executor and run policy
+	executor := NewPolicyExecutor(awsClient, policyStorage)
+
+	fmt.Printf("\n🚀 Executing policy: %s\n", selectedPolicy.Name)
+	fmt.Println("═══════════════════════════════════")
+
+	result, err := executor.ExecutePolicy(selectedPolicy.Name)
+	if err != nil {
+		fmt.Printf("❌ Failed to execute policy: %v\n", err)
+		return
+	}
+
+	displayExecutionResult(result)
+
+	fmt.Println("\n🎉 Policy execution completed!")
+	fmt.Println("💡 Check your AWS console to verify the changes")
+}
+
+func generateReport() {
+	fmt.Println("📊 Report Generator - Choose your adventure!")
+	fmt.Println("═══════════════════════════════════════════════")
+
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Println("What kind of report do you want?")
+	fmt.Println("1. 📋 Compliance Report (HTML)")
+	fmt.Println("2. 💰 Cost Analysis Report (CSV)")
+	fmt.Println("3. 📊 Resource Inventory (CSV)")
+	fmt.Println("4. 📈 Executive Summary (All formats)")
+
+	choice := getChoice(reader, 1, 4, "Choose report type: ")
+
+	// Initialize AWS client
+	awsClient, err := initializeAWSClient(true)
+	if err != nil {
+		fmt.Printf("❌ Failed to initialize AWS client: %v\n", err)
+		return
+	}
+	defer awsClient.Close()
+
+	// Get resources
+	fmt.Println("\n🔍 Gathering AWS resource data...")
+	ec2Instances, _ := awsClient.GetEC2Instances(aws.EC2Filter{})
+	s3Buckets, _ := awsClient.GetS3Buckets(aws.S3Filter{})
+
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+
+	switch choice {
+	case 1:
+		generateComplianceReportInteractive(ec2Instances, s3Buckets, timestamp)
+	case 2:
+		generateCostAnalysisReport(ec2Instances, s3Buckets, timestamp)
+	case 3:
+		generateResourceInventoryReport(ec2Instances, s3Buckets, timestamp)
+	case 4:
+		generateExecutiveSummaryReport(ec2Instances, s3Buckets, timestamp)
+	}
+}
+
+func generateComplianceReportInteractive(
+	ec2Instances []aws.EC2Instance,
+	s3Buckets []aws.S3Bucket,
+	timestamp string,
+) {
+	fmt.Println("\n📋 Generating Compliance Report...")
+
+	htmlGen := reports.NewHTMLReportGenerator("./reports")
+	report, err := htmlGen.GenerateComplianceReport(ec2Instances, s3Buckets)
+	if err != nil {
+		fmt.Printf("❌ Failed to generate report: %v\n", err)
+		return
+	}
+
+	filename := fmt.Sprintf("compliance_report_%s.html", timestamp)
+	if err := htmlGen.SaveHTMLReport(report, filename); err != nil {
+		fmt.Printf("❌ Failed to save report: %v\n", err)
+		return
+	}
+
+	fmt.Printf("✅ HTML compliance report saved: ./reports/%s\n", filename)
+	fmt.Println("\n📊 Quick Summary:")
+	fmt.Printf("   • Critical Issues: %d\n", report.Summary.CriticalIssues)
+	fmt.Printf("   • Compliance Score: %.0f%%\n", report.Summary.CompliancePercentage)
+	fmt.Printf("   • Security Score: %d/100\n", report.SecurityScore)
+	fmt.Printf("   • Potential Savings: $%.0f/month\n", report.CostImpact.PotentialSavings)
+	fmt.Printf("   • EC2 Issues: %d\n", len(report.EC2Findings))
+	fmt.Printf("   • S3 Issues: %d\n", len(report.S3Findings))
+}
+
+func generateExecutiveSummaryReport(
+	ec2Instances []aws.EC2Instance,
+	s3Buckets []aws.S3Bucket,
+	timestamp string,
+) {
+	fmt.Println("\n📈 Generating Executive Summary (All Formats)...")
+
+	// Generate HTML compliance report
+	htmlGen := reports.NewHTMLReportGenerator("./reports")
+	complianceReport, err := htmlGen.GenerateComplianceReport(ec2Instances, s3Buckets)
+	if err == nil {
+		htmlFilename := fmt.Sprintf("executive_summary_%s.html", timestamp)
+		htmlGen.SaveHTMLReport(complianceReport, htmlFilename)
+		fmt.Printf("✅ HTML report saved: ./reports/%s\n", htmlFilename)
+	}
+
+	// Generate JSON summary
+	jsonGen := reports.NewJSONReportGenerator("./reports")
+	jsonReport, err := jsonGen.GenerateComplianceReportJSON(ec2Instances, s3Buckets)
+	if err == nil {
+		jsonFilename := fmt.Sprintf("executive_summary_%s.json", timestamp)
+		jsonGen.SaveJSONReport(jsonReport, jsonFilename)
+		fmt.Printf("✅ JSON report saved: ./reports/%s\n", jsonFilename)
+	}
+
+	// Generate CSV summaries
+	csvGen := reports.NewCSVReportGenerator("./reports")
+
+	// Compliance summary
+	complianceCsvFilename := fmt.Sprintf("compliance_summary_%s.csv", timestamp)
+	csvGen.GenerateComplianceSummaryReport(ec2Instances, s3Buckets, complianceCsvFilename)
+	fmt.Printf("✅ Compliance CSV saved: ./reports/%s\n", complianceCsvFilename)
+
+	// Cost analysis
+	costCsvFilename := fmt.Sprintf("cost_analysis_%s.csv", timestamp)
+	csvGen.GenerateCostAnalysisReport(ec2Instances, s3Buckets, costCsvFilename)
+	fmt.Printf("✅ Cost analysis CSV saved: ./reports/%s\n", costCsvFilename)
+
+	fmt.Println("\n🎉 Executive summary package generated!")
+	fmt.Println("📁 All files saved in: ./reports/")
+	fmt.Println("💡 Open the HTML file in your browser for the best experience")
+}
+
+func configureSettings() {
+	fmt.Println("⚙️  Configuration Settings")
+	fmt.Println("═══════════════════════════")
+
+	if policyStorage == nil {
+		fmt.Println("❌ Storage not initialized!")
+		return
+	}
+
+	// Show storage info
+	if fileStorage, ok := policyStorage.(*storage.FileStorage); ok {
+		info, err := fileStorage.GetStorageInfo()
+		if err != nil {
+			fmt.Printf("❌ Failed to get storage info: %v\n", err)
+			return
+		}
+
+		fmt.Printf("📁 Storage Type: %s\n", info["storage_type"])
+		fmt.Printf("📂 Base Directory: %s\n", info["base_directory"])
+		fmt.Printf("📊 Policies Stored: %d\n", info["policies_count"])
+		fmt.Printf("💾 Storage Size: %.2f MB\n", info["storage_size_mb"])
+		fmt.Printf("📋 Policies Path: %s\n", info["storage_path"])
+		fmt.Printf("📜 History Path: %s\n", info["history_path"])
+
+		fmt.Println("\n💡 Tip: You can backup your policies by copying the base directory!")
+	}
+
+	fmt.Println("\n⚙️  Available Actions:")
+	fmt.Println("   • Export policy: custodian-killer policy export <name> <file>")
+	fmt.Println("   • Import policy: custodian-killer policy import <file>")
+	fmt.Println("   • Test AWS connection: custodian-killer config test")
+	fmt.Println("   • View AWS config: custodian-killer config show")
+}
+
+// Additional functions called from main interactive loop
+func listPolicies() {
+	if policyStorage == nil {
+		fmt.Println("❌ Storage not initialized!")
+		return
+	}
+
+	policies, err := policyStorage.ListPolicies()
+	if err != nil {
+		fmt.Printf("❌ Failed to list policies: %v\n", err)
+		return
+	}
+
+	if len(policies) == 0 {
+		fmt.Println("📋 No policies found!")
+		fmt.Println("💡 Create your first policy with 'make policy'")
+		return
+	}
+
+	fmt.Printf("📋 Your Policies (%d total):\n", len(policies))
+	fmt.Println("═══════════════════════════════════════════════════════════")
+
+	for i, policy := range policies {
+		fmt.Printf("\n%d. 🎯 %s\n", i+1, policy.Name)
+		fmt.Printf("   📝 %s\n", policy.Description)
+		fmt.Printf("   🏷️  Resource: %s | Status: %s | Version: v%d\n",
+			strings.ToUpper(policy.ResourceType), policy.Status, policy.Version)
+		fmt.Printf("   📅 Created: %s | Updated: %s\n",
+			policy.CreatedAt.Format("2006-01-02 15:04"),
+			policy.UpdatedAt.Format("2006-01-02 15:04"))
+
+		if policy.Source != "" {
+			fmt.Printf("   🔧 Source: %s", policy.Source)
+			if policy.TemplateID != "" {
+				fmt.Printf(" (template: %s)", policy.TemplateID)
+			}
+			fmt.Println()
+		}
+
+		if policy.LastRun != nil {
+			fmt.Printf("   ⚡ Last run: %s | Runs: %d\n",
+				policy.LastRun.Format("2006-01-02 15:04"), policy.RunCount)
+		}
+
+		// Show filters and actions summary
+		fmt.Printf("   🔍 Filters: %d | ⚡ Actions: %d",
+			len(policy.Filters), len(policy.Actions))
+
+		// Show if any actions are dry-run
+		dryRunCount := 0
+		for _, action := range policy.Actions {
+			if action.DryRun {
+				dryRunCount++
+			}
+		}
+		if dryRunCount > 0 {
+			fmt.Printf(" (%d dry-run)", dryRunCount)
+		}
+		fmt.Println()
+
+		if len(policy.Tags) > 0 {
+			fmt.Printf("   🏷️  Tags: ")
+			var tagStrs []string
+			for key, value := range policy.Tags {
+				tagStrs = append(tagStrs, fmt.Sprintf("%s=%s", key, value))
+			}
+			fmt.Println(strings.Join(tagStrs, ", "))
+		}
+	}
+
+	fmt.Println("\n💡 Commands:")
+	fmt.Println("   • Type 'scan' to test your policies")
+	fmt.Println("   • Type 'execute' to run them for real")
+	fmt.Println("   • Use 'custodian-killer policy edit <name>' to modify")
 }
 
 // Helper functions
@@ -1312,210 +1820,4 @@ func convertTemplatePolicyToPolicy(policyDef templates.PolicyDefinition) Policy 
 	}
 
 	return policy
-}
-
-// Additional functions called from main interactive loop
-func listPolicies() {
-	if policyStorage == nil {
-		fmt.Println("❌ Storage not initialized!")
-		return
-	}
-
-	policies, err := policyStorage.ListPolicies()
-	if err != nil {
-		fmt.Printf("❌ Failed to list policies: %v\n", err)
-		return
-	}
-
-	if len(policies) == 0 {
-		fmt.Println("📋 No policies found!")
-		fmt.Println("💡 Create your first policy with 'make policy'")
-		return
-	}
-
-	fmt.Printf("📋 Your Policies (%d total):\n", len(policies))
-	fmt.Println("═══════════════════════════════════════════════════════════")
-
-	for i, policy := range policies {
-		fmt.Printf("\n%d. 🎯 %s\n", i+1, policy.Name)
-		fmt.Printf("   📝 %s\n", policy.Description)
-		fmt.Printf("   🏷️  Resource: %s | Status: %s | Version: v%d\n",
-			strings.ToUpper(policy.ResourceType), policy.Status, policy.Version)
-		fmt.Printf("   📅 Created: %s | Updated: %s\n",
-			policy.CreatedAt.Format("2006-01-02 15:04"),
-			policy.UpdatedAt.Format("2006-01-02 15:04"))
-
-		if policy.Source != "" {
-			fmt.Printf("   🔧 Source: %s", policy.Source)
-			if policy.TemplateID != "" {
-				fmt.Printf(" (template: %s)", policy.TemplateID)
-			}
-			fmt.Println()
-		}
-
-		if policy.LastRun != nil {
-			fmt.Printf("   ⚡ Last run: %s | Runs: %d\n",
-				policy.LastRun.Format("2006-01-02 15:04"), policy.RunCount)
-		}
-
-		// Show filters and actions summary
-		fmt.Printf("   🔍 Filters: %d | ⚡ Actions: %d",
-			len(policy.Filters), len(policy.Actions))
-
-		// Show if any actions are dry-run
-		dryRunCount := 0
-		for _, action := range policy.Actions {
-			if action.DryRun {
-				dryRunCount++
-			}
-		}
-		if dryRunCount > 0 {
-			fmt.Printf(" (%d dry-run)", dryRunCount)
-		}
-		fmt.Println()
-
-		if len(policy.Tags) > 0 {
-			fmt.Printf("   🏷️  Tags: ")
-			var tagStrs []string
-			for key, value := range policy.Tags {
-				tagStrs = append(tagStrs, fmt.Sprintf("%s=%s", key, value))
-			}
-			fmt.Println(strings.Join(tagStrs, ", "))
-		}
-	}
-
-	fmt.Println("\n💡 Commands:")
-	fmt.Println("   • Type 'scan' to test your policies")
-	fmt.Println("   • Type 'execute' to run them for real")
-	fmt.Println("   • Use 'custodian-killer policy edit <name>' to modify")
-}
-
-func runScan() {
-	if policyStorage == nil {
-		fmt.Println("❌ Storage not initialized!")
-		return
-	}
-
-	fmt.Println("🔍 Policy Scanner - See what your policies would do!")
-	fmt.Println("═══════════════════════════════════════════════════")
-
-	// List available policies
-	policies, err := policyStorage.ListPolicies()
-	if err != nil {
-		fmt.Printf("❌ Failed to list policies: %v\n", err)
-		return
-	}
-
-	if len(policies) == 0 {
-		fmt.Println("📋 No policies found!")
-		fmt.Println("💡 Create your first policy with 'make policy'")
-		return
-	}
-
-	// Show active policies
-	var activePolicies []storage.StoredPolicy
-	for _, policy := range policies {
-		if policy.Status == "active" {
-			activePolicies = append(activePolicies, policy)
-		}
-	}
-
-	if len(activePolicies) == 0 {
-		fmt.Println("📋 No active policies found!")
-		return
-	}
-
-	fmt.Printf("📋 Active Policies (%d available):\n", len(activePolicies))
-	for i, policy := range activePolicies {
-		fmt.Printf("%d. 🎯 %s (%s)\n", i+1, policy.Name, strings.ToUpper(policy.ResourceType))
-	}
-	fmt.Printf("%d. 🚀 Scan ALL policies\n", len(activePolicies)+1)
-
-	reader := bufio.NewReader(os.Stdin)
-	choice := getChoice(reader, 1, len(activePolicies)+1, "\nChoose policy to scan: ")
-
-	// Create scanner
-	config := scanner.ScannerConfig{
-		AWSRegion:     "us-east-1",
-		AWSProfile:    "default",
-		DryRunDefault: true,
-		MaxResources:  1000,
-		Timeout:       300,
-	}
-	policyScanner := scanner.NewPolicyScanner(policyStorage, config)
-
-	if choice == len(activePolicies)+1 {
-		// Scan all policies
-		fmt.Println("\n🚀 Scanning ALL active policies...")
-		fmt.Println("═══════════════════════════════════════")
-
-		results, err := policyScanner.ScanAllPolicies()
-		if err != nil {
-			fmt.Printf("❌ Failed to scan policies: %v\n", err)
-			return
-		}
-
-		displayAllScanResults(results)
-	} else {
-		// Scan single policy
-		selectedPolicy := activePolicies[choice-1]
-		fmt.Printf("\n🎯 Scanning policy: %s\n", selectedPolicy.Name)
-		fmt.Println("═══════════════════════════════════════")
-
-		result, err := policyScanner.ScanPolicy(selectedPolicy.Name)
-		if err != nil {
-			fmt.Printf("❌ Failed to scan policy: %v\n", err)
-			return
-		}
-
-		displayScanResult(*result)
-	}
-
-	fmt.Println("\n💡 Next steps:")
-	fmt.Println("   • Review the results above")
-	fmt.Println("   • Use 'execute' to run policies for real")
-	fmt.Println("   • Modify policies if needed")
-}
-
-func executePolicy() {
-	fmt.Println("⚡ Executing policies...")
-	fmt.Println("(Execution engine coming up...)")
-}
-
-func generateReport() {
-	fmt.Println("📊 Generating compliance/cost reports...")
-	fmt.Println("(Report generation coming up...)")
-}
-
-func configureSettings() {
-	fmt.Println("⚙️  Configuration Settings")
-	fmt.Println("═══════════════════════════")
-
-	if policyStorage == nil {
-		fmt.Println("❌ Storage not initialized!")
-		return
-	}
-
-	// Show storage info
-	if fileStorage, ok := policyStorage.(*storage.FileStorage); ok {
-		info, err := fileStorage.GetStorageInfo()
-		if err != nil {
-			fmt.Printf("❌ Failed to get storage info: %v\n", err)
-			return
-		}
-
-		fmt.Printf("📁 Storage Type: %s\n", info["storage_type"])
-		fmt.Printf("📂 Base Directory: %s\n", info["base_directory"])
-		fmt.Printf("📊 Policies Stored: %d\n", info["policies_count"])
-		fmt.Printf("💾 Storage Size: %.2f MB\n", info["storage_size_mb"])
-		fmt.Printf("📋 Policies Path: %s\n", info["storage_path"])
-		fmt.Printf("📜 History Path: %s\n", info["history_path"])
-
-		fmt.Println("\n💡 Tip: You can backup your policies by copying the base directory!")
-	}
-
-	fmt.Println("\n⚙️  Available Actions:")
-	fmt.Println("   • Export policy: custodian-killer policy export <name> <file>")
-	fmt.Println("   • Import policy: custodian-killer policy import <file>")
-	fmt.Println("   • View history: custodian-killer policy history <name>")
 }
