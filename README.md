@@ -506,7 +506,7 @@ Found a bug? We want to squash it! 🐛
 - 📖 **Documentation**: Check this README first
 - 💬 **Discussions**: Use GitHub Discussions for questions
 - 🐛 **Issues**: Use GitHub Issues for bugs
-- 📧 **Email**: serious-issues@custodian-killer.dev
+- 📧 **Email**: TODO
 
 ## 📈 Roadmap
 
