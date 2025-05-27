@@ -1,15 +1,57 @@
 package main
 
 import (
+	"custodian-killer/storage"
+	"custodian-killer/wizard"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 )
 
-var version = "1.0.0"
+var (
+	version       = "1.0.0"
+	policyStorage storage.PolicyStorage
+)
+
+// Stub AWS client - define this ONCE and properly
+type StubAWSClient struct {
+	Region  string
+	Profile string
+}
+
+func (s *StubAWSClient) Close() {}
+
+func (s *StubAWSClient) GetEC2Instances(filter interface{}) ([]interface{}, error) {
+	fmt.Println("🔧 GetEC2Instances - stub implementation")
+	return []interface{}{}, nil
+}
+
+func (s *StubAWSClient) GetS3Buckets(filter interface{}) ([]interface{}, error) {
+	fmt.Println("🔧 GetS3Buckets - stub implementation")
+	return []interface{}{}, nil
+}
+
+func (s *StubAWSClient) GetRegions() ([]string, error) {
+	return []string{"us-east-1", "us-west-2", "eu-west-1"}, nil
+}
+
+func (s *StubAWSClient) GetServiceQuotas() map[string]interface{} {
+	return map[string]interface{}{
+		"EC2": "Running instances: 20",
+		"S3":  "Buckets: 100",
+		"RDS": "DB instances: 40",
+	}
+}
 
 func main() {
+	// Initialize storage at startup
+	var err error
+	policyStorage, err = initializePolicyStorage()
+	if err != nil {
+		fmt.Printf("⚠️  Warning: Could not initialize policy storage: %v\n", err)
+	}
+
 	rootCmd := &cobra.Command{
 		Use:   "custodian-killer",
 		Short: "Making AWS compliance fun again!",
@@ -129,8 +171,84 @@ Pro tips:
   - We support ALL AWS resource types (seriously, all of them)`)
 }
 
-// startPolicyCreation is implemented in wizard.go
+// startPolicyCreation initializes the wizard and starts policy creation
+func startPolicyCreation() {
+	fmt.Println("🎯 Starting Policy Creation Wizard...")
 
-// Policy management functions are implemented in other files
-// listPolicies is in wizard.go
-// runScan, executePolicy, generateReport, configureSettings are in commands.go
+	// Create and start the wizard using the global storage
+	wizardInstance := wizard.NewWizard(policyStorage)
+	wizardInstance.Start()
+}
+
+// initializePolicyStorage sets up the policy storage
+func initializePolicyStorage() (storage.PolicyStorage, error) {
+	fileStorage, err := storage.NewFileStorage("./policies")
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize policy storage: %v", err)
+	}
+	return fileStorage, nil
+}
+
+// initializeAWSClient creates a stub AWS client - used by commands.go
+func initializeAWSClient(verbose bool) (*StubAWSClient, error) {
+	if verbose {
+		fmt.Println("🔧 Initializing AWS client (stub mode)")
+	}
+
+	return &StubAWSClient{
+		Region:  "us-east-1",
+		Profile: "default",
+	}, nil
+}
+
+// Placeholder functions for interactive commands
+func listPolicies() {
+	fmt.Println("📋 Policy List:")
+
+	if policyStorage == nil {
+		fmt.Println("❌ Cannot access policy storage")
+		return
+	}
+
+	policies, err := policyStorage.ListPolicies()
+	if err != nil {
+		fmt.Printf("❌ Error loading policies: %v\n", err)
+		return
+	}
+
+	if len(policies) == 0 {
+		fmt.Println("📝 No policies found. Use 'make policy' to create your first one!")
+		return
+	}
+
+	fmt.Printf("Found %d policies:\n", len(policies))
+	for i, policy := range policies {
+		fmt.Printf("  %d. %s (%s) - %s\n",
+			i+1,
+			policy.Name,
+			policy.ResourceType,
+			policy.Description)
+	}
+}
+
+func runScan() {
+	fmt.Println("🔍 Scan Mode:")
+	fmt.Println(
+		"(This feature is coming soon! Will show what policies would do without making changes.)",
+	)
+}
+
+func executePolicy() {
+	fmt.Println("⚡ Execute Mode:")
+	fmt.Println("(This feature is coming soon! Will actually run the policies with confirmation.)")
+}
+
+func generateReport() {
+	fmt.Println("📊 Report Generation:")
+	fmt.Println("(This feature is coming soon! Will generate compliance and cost reports.)")
+}
+
+func configureSettings() {
+	fmt.Println("⚙️  Configuration:")
+	fmt.Println("(This feature is coming soon! Will help set up AWS credentials and preferences.)")
+}

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"custodian-killer/aws"
-	"custodian-killer/reports"
 	"custodian-killer/storage"
 	"fmt"
 	"os"
@@ -320,7 +318,7 @@ func runScanCommand(cmd *cobra.Command) {
 		runSpecificPolicyScan(specificPolicy, verbose, outputFormat)
 	} else {
 		fmt.Println("🚀 Scanning all active policies")
-		runScan() // Use the interactive function
+		runScan() // Use the interactive function from main.go
 	}
 }
 
@@ -360,7 +358,7 @@ func runExecuteCommand(cmd *cobra.Command) {
 		runSpecificPolicyExecution(specificPolicy)
 	} else {
 		fmt.Println("🚀 Executing policies")
-		executePolicy() // Use the interactive function
+		executePolicy() // Use the interactive function from main.go
 	}
 }
 
@@ -376,7 +374,7 @@ func generateComplianceReportCmd(cmd *cobra.Command) {
 		os.Setenv("AWS_REGION", region)
 	}
 
-	// Initialize AWS client
+	// Initialize AWS client (returns our stub)
 	awsClient, err := initializeAWSClient(true)
 	if err != nil {
 		fmt.Printf("❌ Failed to initialize AWS client: %v\n", err)
@@ -384,32 +382,37 @@ func generateComplianceReportCmd(cmd *cobra.Command) {
 	}
 	defer awsClient.Close()
 
-	// Get resources
-	ec2Instances, _ := awsClient.GetEC2Instances(aws.EC2Filter{})
-	s3Buckets, _ := awsClient.GetS3Buckets(aws.S3Filter{})
+	// Get resources (stub returns empty slices)
+	ec2InstancesRaw, _ := awsClient.GetEC2Instances(nil)
+	s3BucketsRaw, _ := awsClient.GetS3Buckets(nil)
 
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
+
+	fmt.Printf("📊 Found %d EC2 instances and %d S3 buckets (stub data)\n",
+		len(ec2InstancesRaw), len(s3BucketsRaw))
 
 	switch outputFormat {
 	case "html":
 		if outputFile == "" {
 			outputFile = fmt.Sprintf("compliance_report_%s.html", timestamp)
 		}
-		generateComplianceReportHTML(ec2Instances, s3Buckets, outputFile)
+		fmt.Printf("📄 HTML compliance report would be generated: ./reports/%s\n", outputFile)
 	case "json":
 		if outputFile == "" {
 			outputFile = fmt.Sprintf("compliance_report_%s.json", timestamp)
 		}
-		generateComplianceReportJSON(ec2Instances, s3Buckets, outputFile)
+		fmt.Printf("📄 JSON compliance report would be generated: ./reports/%s\n", outputFile)
 	case "csv":
 		if outputFile == "" {
 			outputFile = fmt.Sprintf("compliance_summary_%s.csv", timestamp)
 		}
-		generateComplianceReportCSV(ec2Instances, s3Buckets, outputFile)
+		fmt.Printf("📄 CSV compliance report would be generated: ./reports/%s\n", outputFile)
 	default:
 		fmt.Printf("❌ Unsupported output format: %s\n", outputFormat)
 		return
 	}
+
+	fmt.Println("✅ Compliance report generation completed (stub mode)")
 }
 
 func generateCostReportCmd(cmd *cobra.Command) {
@@ -424,7 +427,7 @@ func generateCostReportCmd(cmd *cobra.Command) {
 		os.Setenv("AWS_REGION", region)
 	}
 
-	// Initialize AWS client
+	// Initialize AWS client (stub)
 	awsClient, err := initializeAWSClient(true)
 	if err != nil {
 		fmt.Printf("❌ Failed to initialize AWS client: %v\n", err)
@@ -432,17 +435,28 @@ func generateCostReportCmd(cmd *cobra.Command) {
 	}
 	defer awsClient.Close()
 
-	// Get resources
-	ec2Instances, _ := awsClient.GetEC2Instances(aws.EC2Filter{})
-	s3Buckets, _ := awsClient.GetS3Buckets(aws.S3Filter{})
+	// Get resources (stub)
+	ec2InstancesRaw, _ := awsClient.GetEC2Instances(nil)
+	s3BucketsRaw, _ := awsClient.GetS3Buckets(nil)
 
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 
-	// Use the variables to avoid compiler errors
-	_ = outputFormat
-	_ = outputFile
+	fmt.Printf("📊 Found %d EC2 instances and %d S3 buckets (stub data)\n",
+		len(ec2InstancesRaw), len(s3BucketsRaw))
 
-	generateCostAnalysisReport(ec2Instances, s3Buckets, timestamp)
+	if outputFile == "" {
+		outputFile = fmt.Sprintf("cost_report_%s.%s", timestamp, outputFormat)
+	}
+
+	fmt.Printf("💰 Cost optimization report would be generated: ./reports/%s\n", outputFile)
+
+	// Show stub cost summary
+	fmt.Println("\n📈 Cost Summary (sample data):")
+	fmt.Printf("   • Current Monthly Cost: $1,234.56\n")
+	fmt.Printf("   • Potential Savings: $456.78/month\n")
+	fmt.Printf("   • Annual Savings: $5,481.36\n")
+
+	fmt.Println("✅ Cost report generation completed (stub mode)")
 }
 
 func generateInventoryReportCmd(cmd *cobra.Command) {
@@ -457,7 +471,7 @@ func generateInventoryReportCmd(cmd *cobra.Command) {
 		os.Setenv("AWS_REGION", region)
 	}
 
-	// Initialize AWS client
+	// Initialize AWS client (stub)
 	awsClient, err := initializeAWSClient(true)
 	if err != nil {
 		fmt.Printf("❌ Failed to initialize AWS client: %v\n", err)
@@ -465,20 +479,146 @@ func generateInventoryReportCmd(cmd *cobra.Command) {
 	}
 	defer awsClient.Close()
 
-	// Get resources
-	ec2Instances, _ := awsClient.GetEC2Instances(aws.EC2Filter{})
-	s3Buckets, _ := awsClient.GetS3Buckets(aws.S3Filter{})
+	// Get resources (stub)
+	ec2InstancesRaw, _ := awsClient.GetEC2Instances(nil)
+	s3BucketsRaw, _ := awsClient.GetS3Buckets(nil)
 
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 
-	// Use the variables to avoid compiler errors
-	_ = outputFormat
-	_ = outputFile
+	fmt.Printf("📊 Found %d EC2 instances and %d S3 buckets (stub data)\n",
+		len(ec2InstancesRaw), len(s3BucketsRaw))
 
-	generateResourceInventoryReport(ec2Instances, s3Buckets, timestamp)
+	if outputFile == "" {
+		outputFile = fmt.Sprintf("inventory_report_%s.%s", timestamp, outputFormat)
+	}
+
+	fmt.Printf("📋 Resource inventory report would be generated: ./reports/%s\n", outputFile)
+
+	// Show stub inventory summary
+	fmt.Println("\n📊 Resource Summary (sample data):")
+	fmt.Printf("   • EC2 Instances: 15 (12 running, 3 stopped)\n")
+	fmt.Printf("   • S3 Buckets: 8 (2 public, 6 private)\n")
+	fmt.Printf("   • EBS Volumes: 25 (5 unattached)\n")
+	fmt.Printf("   • Security Groups: 12\n")
+
+	fmt.Println("✅ Inventory report generation completed (stub mode)")
 }
 
-// Helper functions that are called from the wizard.go file
+func showConfig() {
+	fmt.Println("⚙️  Current Configuration:")
+	fmt.Println("═════════════════════════")
+
+	// Show environment variables
+	fmt.Println("🌍 Environment Variables:")
+	fmt.Printf("   AWS_REGION: %s\n", getEnvOrDefault("AWS_REGION", "not set"))
+	fmt.Printf("   AWS_PROFILE: %s\n", getEnvOrDefault("AWS_PROFILE", "not set"))
+	fmt.Printf("   AWS_ACCESS_KEY_ID: %s\n", maskCredential(os.Getenv("AWS_ACCESS_KEY_ID")))
+	fmt.Printf("   AWS_SECRET_ACCESS_KEY: %s\n", maskCredential(os.Getenv("AWS_SECRET_ACCESS_KEY")))
+
+	// Show storage info
+	if policyStorage != nil {
+		if fileStorage, ok := policyStorage.(*storage.FileStorage); ok {
+			info, err := fileStorage.GetStorageInfo()
+			if err == nil {
+				fmt.Println("\n📁 Storage Configuration:")
+				fmt.Printf("   Type: %s\n", info["storage_type"])
+				fmt.Printf("   Directory: %s\n", info["base_directory"])
+				fmt.Printf("   Policies: %d\n", info["policies_count"])
+				fmt.Printf("   Storage Size: %.2f MB\n", info["storage_size_mb"])
+			}
+		}
+	}
+}
+
+func testAWSConnection() {
+	fmt.Println("🧪 Testing AWS connection...")
+
+	awsClient, err := initializeAWSClient(true)
+	if err != nil {
+		fmt.Printf("❌ Failed to initialize AWS client: %v\n", err)
+		return
+	}
+	defer awsClient.Close()
+
+	fmt.Println("✅ AWS connection successful (stub mode)!")
+
+	// Show basic info
+	fmt.Println("\n📊 Connection Details:")
+	fmt.Printf("   Region: %s\n", awsClient.Region)
+	fmt.Printf("   Profile: %s\n", awsClient.Profile)
+
+	// Test basic API calls
+	fmt.Println("\n🔍 Testing API access...")
+
+	regions, err := awsClient.GetRegions()
+	if err != nil {
+		fmt.Printf("⚠️  Failed to list regions: %v\n", err)
+	} else {
+		fmt.Printf("✅ Can access %d regions\n", len(regions))
+	}
+
+	quotas := awsClient.GetServiceQuotas()
+	fmt.Println("\n📈 Service Quotas (estimates):")
+	for service, quota := range quotas {
+		fmt.Printf("   %s: %v\n", service, quota)
+	}
+}
+
+// Helper functions
+func runSpecificPolicyScan(policyName string, verbose bool, outputFormat string) {
+	fmt.Printf("🎯 Scanning policy: %s\n", policyName)
+
+	if policyStorage == nil {
+		fmt.Println("❌ Storage not initialized!")
+		return
+	}
+
+	// Check if policy exists
+	if !policyStorage.PolicyExists(policyName) {
+		fmt.Printf("❌ Policy '%s' not found!\n", policyName)
+		return
+	}
+
+	fmt.Printf("🔍 Policy scan mode: %s (verbose: %t)\n", outputFormat, verbose)
+	fmt.Println("💡 Policy scanning implementation coming soon!")
+}
+
+func runSpecificPolicyExecution(policyName string) {
+	fmt.Printf("⚡ Executing policy: %s\n", policyName)
+
+	if policyStorage == nil {
+		fmt.Println("❌ Storage not initialized!")
+		return
+	}
+
+	// Check if policy exists
+	if !policyStorage.PolicyExists(policyName) {
+		fmt.Printf("❌ Policy '%s' not found!\n", policyName)
+		return
+	}
+
+	fmt.Println("💡 Policy execution implementation coming soon!")
+}
+
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func maskCredential(credential string) string {
+	if credential == "" {
+		return "not set"
+	}
+	if len(credential) > 8 {
+		return credential[:4] + "****" + credential[len(credential)-4:]
+	}
+	return "****"
+}
+
+// Commented out functions that require real AWS types - uncomment when implementing real AWS integration
+/*
 func generateCostAnalysisReport(
 	ec2Instances []aws.EC2Instance,
 	s3Buckets []aws.S3Bucket,
@@ -557,79 +697,6 @@ func generateResourceInventoryReport(
 	fmt.Printf("📁 All files saved in: ./reports/\n")
 }
 
-func showConfig() {
-	fmt.Println("⚙️  Current Configuration:")
-	fmt.Println("═════════════════════════")
-
-	// Show environment variables
-	fmt.Println("🌍 Environment Variables:")
-	fmt.Printf("   AWS_REGION: %s\n", getEnvOrDefault("AWS_REGION", "not set"))
-	fmt.Printf("   AWS_PROFILE: %s\n", getEnvOrDefault("AWS_PROFILE", "not set"))
-	fmt.Printf("   AWS_ACCESS_KEY_ID: %s\n", maskCredential(os.Getenv("AWS_ACCESS_KEY_ID")))
-	fmt.Printf("   AWS_SECRET_ACCESS_KEY: %s\n", maskCredential(os.Getenv("AWS_SECRET_ACCESS_KEY")))
-
-	// Show storage info
-	if policyStorage != nil {
-		if fileStorage, ok := policyStorage.(*storage.FileStorage); ok {
-			info, err := fileStorage.GetStorageInfo()
-			if err == nil {
-				fmt.Println("\n📁 Storage Configuration:")
-				fmt.Printf("   Type: %s\n", info["storage_type"])
-				fmt.Printf("   Directory: %s\n", info["base_directory"])
-				fmt.Printf("   Policies: %d\n", info["policies_count"])
-				fmt.Printf("   Storage Size: %.2f MB\n", info["storage_size_mb"])
-			}
-		}
-	}
-}
-
-func testAWSConnection() {
-	fmt.Println("🧪 Testing AWS connection...")
-
-	awsClient, err := initializeAWSClient(true)
-	if err != nil {
-		fmt.Printf("❌ Failed to initialize AWS client: %v\n", err)
-		return
-	}
-	defer awsClient.Close()
-
-	fmt.Println("✅ AWS connection successful!")
-
-	// Show basic info
-	fmt.Println("\n📊 Connection Details:")
-	fmt.Printf("   Region: %s\n", awsClient.Region)
-	fmt.Printf("   Profile: %s\n", awsClient.Profile)
-
-	// Test basic API calls
-	fmt.Println("\n🔍 Testing API access...")
-
-	regions, err := awsClient.GetRegions()
-	if err != nil {
-		fmt.Printf("⚠️  Failed to list regions: %v\n", err)
-	} else {
-		fmt.Printf("✅ Can access %d regions\n", len(regions))
-	}
-
-	quotas := awsClient.GetServiceQuotas()
-	fmt.Println("\n📈 Service Quotas (estimates):")
-	for service, quota := range quotas {
-		fmt.Printf("   %s: %v\n", service, quota)
-	}
-}
-
-// Helper functions
-func runSpecificPolicyScan(policyName string, verbose bool, outputFormat string) {
-	// Implementation for scanning specific policy
-	fmt.Printf("🎯 Scanning policy: %s\n", policyName)
-	fmt.Println("💡 Use the main 'scan' command for now")
-}
-
-func runSpecificPolicyExecution(policyName string) {
-	// Implementation for executing specific policy
-	fmt.Printf("⚡ Executing policy: %s\n", policyName)
-	fmt.Println("💡 Use the main 'execute' command for now")
-}
-
 func generateComplianceReportHTML(
 	ec2Instances []aws.EC2Instance,
 	s3Buckets []aws.S3Bucket,
@@ -684,20 +751,4 @@ func generateComplianceReportCSV(
 
 	fmt.Printf("✅ CSV compliance report saved: ./reports/%s\n", filename)
 }
-
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-func maskCredential(credential string) string {
-	if credential == "" {
-		return "not set"
-	}
-	if len(credential) > 8 {
-		return credential[:4] + "****" + credential[len(credential)-4:]
-	}
-	return "****"
-}
+*/
