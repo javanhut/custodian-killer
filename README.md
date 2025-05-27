@@ -1,4 +1,4 @@
-# 🦍 Custodian Killer
+# Custodian Killer
 
 ```
  ██████╗██╗   ██╗███████╗████████╗ ██████╗ ██████╗ ██╗ █████╗ ███╗   ██╗    
@@ -534,16 +534,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **AWS SDK Team** - For the excellent Go SDK
 - **Cloud Custodian** - For inspiration (and for being so hard to use that we built this)
 - **The Go Community** - For building an amazing ecosystem
-- **Our Contributors** - You make this project awesome! 🦍
+- **Our Contributors** - You make this project awesome!
 
 ## 🎉 Final Words
 
 Custodian Killer isn't just a tool - it's a revolution in AWS management. We're making compliance fun, costs transparent, and AWS management actually enjoyable.
 
-Join the ape army and help us make AWS suck less! 🦍💪
-
 ---
 
-**Made with 🦍 and ☕ by developers who got tired of YAML**
+**Made with ☕ by developers who got tired of YAML**
 
 *P.S. - Yes, we know the name is provocative. That's the point. Cloud Custodian made us do it.* 😈
